@@ -1,2 +1,3 @@
 # ccd-trading-view
-# ccd-trading-view
+
+WIP strategies

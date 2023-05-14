@@ -1,0 +1,108 @@
+//@version=5
+strategy(title="PionexGPT Testing Strategy", shorttitle="PionexGPT Testing Strategy", overlay=true, initial_capital = 1000, default_qty_type = strategy.percent_of_equity, default_qty_value = 100, commission_value = 0.05)
+showBB = input.bool(false, "Show Ichimoku Cloud")
+showTrade   = input.bool(false, 'Show TP/SL')
+conversionPeriods = input.int(4, minval=1, title="Conversion Line Length")
+basePeriods = input.int(4, minval=1, title="Base Line Length")
+laggingSpan2Periods = input.int(46, minval=1, title="Leading Span B Length")
+displacement = input.int(20, minval=1, title="Lagging Span")
+donchian(len) => math.avg(ta.lowest(len), ta.highest(len))
+conversionLine = donchian(conversionPeriods)
+baseLine = donchian(basePeriods)
+leadLine1 = math.avg(conversionLine, baseLine)
+leadLine2 = donchian(laggingSpan2Periods)
+plot(showBB ? conversionLine : na, color=#2962FF, title="Conversion Line")
+plot(showBB ? baseLine : na, color=#B71C1C, title="Base Line")
+plot(showBB ? close : na, offset = -displacement + 1, color=#43A047, title="Lagging Span")
+p1 = plot(showBB ? leadLine1 : na, offset = displacement - 1, color=#A5D6A7,
+   title="Leading Span A")
+p2 = plot(showBB ? leadLine2 : na, offset = displacement - 1, color=#EF9A9A,
+   title="Leading Span B")
+plot(leadLine1 > leadLine2 ? leadLine1 : leadLine2, offset = displacement - 1, title = "Kumo Cloud Upper Line", display = display.none)
+plot(leadLine1 < leadLine2 ? leadLine1 : leadLine2, offset = displacement - 1, title = "Kumo Cloud Lower Line", display = display.none)
+fill(p1, p2, color = leadLine1 > leadLine2 ? color.rgb(67, 160, 71, 90) : color.rgb(244, 67, 54, 90))
+
+// Add this to the existing strategy
+longest = ta.ema(close, 200)
+plot(showBB ? longest : na, color = color.yellow)
+
+
+// Strategy code begins here
+import TradingView/Strategy/2 as css
+
+//DATE RANGE FILTER {
+i_tradeDirection = input.string(title='Trade Direction', defval=strategy.direction.all, options=[strategy.direction.all, strategy.direction.long, strategy.direction.short], group='Trade Filters')
+strategy.risk.allow_entry_in(i_tradeDirection)
+i_startTime = input.time(defval=timestamp('01 Jan 2012 00:00 +0000'), title='Start Time', group='Trade Filters')
+i_endTime = input.time(defval=timestamp('01 Jan 2099 00:00 +0000'), title='End Time', group='Trade Filters')
+inDateRange = time >= i_startTime and time <= i_endTime
+//}
+//SL TP PERCENT {
+string sltp= "STOP/TAKE PROFIT"
+usetpsl     = input.bool(true, 'Use TP/SL', inline=sltp, group=sltp)
+float percentStop = input.float(1.75, "Stop %",  minval = 0.0, step = 0.25, group=sltp, inline='percent')
+float percentTP   = input.float(3.25, "Limit %", minval = 0.0, step = 0.25, group=sltp, inline='percent')
+//}
+//ALERTS {
+i_alert_txt_entry_long = input.text_area(defval = "", title = "Long Entry Message", group = "Alerts")
+i_alert_txt_entry_short = input.text_area(defval = "", title = "Short Entry Message", group = "Alerts")
+i_alert_txt_exit_long = input.text_area(defval = "", title = "Long Exit Message", group = "Alerts")
+i_alert_txt_exit_short = input.text_area(defval = "", title = "Short Exit Message", group = "Alerts")
+//}
+
+// Using the input stop/ limit percent, we can convert to ticks and use the ticks to level functions.
+// This can be used to calculate the take profit and stop levels.
+float sl = css.ticksToStopLevel (css.percentToTicks (percentStop))
+float tp = css.ticksToTpLevel   (css.percentToTicks (percentTP))
+
+exitPrice = strategy.closedtrades.exit_price(strategy.closedtrades-1)
+bias      = math.sign(strategy.position_size)
+avg       = strategy.position_avg_price
+
+// Conditions used to reference position and determine trade bias
+bool long         = strategy.position_size > 0
+bool short        = strategy.position_size < 0
+bool enterLong    = long  and not long [1]
+bool enterShort   = short and not short[1]
+bool enter        = enterLong or enterShort
+bool exit         = strategy.position_size == 0 and not (strategy.position_size == 0)[1]
+bool flat         = strategy.position_size == 0
+
+//STRATEGY PLOTS {
+avgerage    = plot(showTrade  ? avg : na, "ENTRY", not enter ? color.new(color.white, 0) : na, 2, plot.style_linebr)
+slp         = plot(showTrade  ? sl  : na, "STOP LOSS", not enter ? color.new(color.red, 60) : na, 4, plot.style_linebr)
+tpp         = plot(showTrade  ? tp  : na, "TAKE PROFIT", not enter ? color.new(color.green,   60) : na, 4, plot.style_linebr)
+
+fill(tpp, avgerage, color = color.new(color.green,   80), title='TP Background')
+fill(avgerage, slp, color = color.new(color.red, 80) , title= 'SL Background')
+//}
+
+if usetpsl == true and long
+    css.exitPercent("exit long", percentStop, percentTP, alertMessage=i_alert_txt_exit_long)
+
+if usetpsl == true and short
+    css.exitPercent("exit short", percentStop, percentTP, alertMessage=i_alert_txt_exit_short)
+
+
+// Strategy code begins here
+long_entry = (close > longest) and (close > leadLine1) and (close > leadLine2) and (close > conversionLine) and (close > baseLine)
+short_entry = (close < longest) and (close < leadLine1) and (close < leadLine2) and (close < conversionLine) and (close < baseLine)
+
+bool longCondition  = long_entry
+bool shortCondition = short_entry
+
+// Create entries based on the cross conditions for both trades biases.
+if longCondition and inDateRange
+    strategy.close("SHORT", "SX" , alert_message=i_alert_txt_exit_short)
+    strategy.entry("LONG", strategy.long, alert_message=i_alert_txt_entry_long)
+
+if shortCondition and inDateRange
+    strategy.close("LONG", "LX", alert_message=i_alert_txt_exit_long)
+    strategy.entry("SHORT", strategy.short, alert_message=i_alert_txt_entry_short)
+
+
+if shortCondition or (strategy.position_size > 0) and (close < leadLine1)
+    strategy.close("Long", "Close Long", alert_message=i_alert_txt_exit_long)
+if longCondition or (strategy.position_size < 0) and (close > leadLine1)
+    strategy.close("Short", "Close Short", alert_message=i_alert_txt_exit_short)
+

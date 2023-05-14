@@ -1,0 +1,20 @@
+//@version=5
+strategy("CCD 1h BOT SMA 25/50 Crossover", overlay=true)
+
+sma25 = ta.sma(close, 25)
+sma50 = ta.sma(close, 50)
+
+longCondition = ta.crossover(sma25, sma50) and time >= timestamp("UTC+8", 2023, 1, 1)
+shortCondition = ta.crossunder(sma25, sma50) and time >= timestamp("UTC+8", 2023, 1, 1)
+
+transactionQty = 1
+inTradeWindow = na(time) ? false : true
+
+if longCondition and inTradeWindow
+    strategy.order("Enter Long", strategy.long, qty=transactionQty, comment="Enter Long")
+    strategy.close("Exit Short", qty=transactionQty, comment="EXIT Short")
+
+if shortCondition and inTradeWindow
+    strategy.order("Enter Short", strategy.short, qty=transactionQty, comment="Enter Short")
+    strategy.close("Exit Long", qty=transactionQty, comment="EXIT LONG")
+
